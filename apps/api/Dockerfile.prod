@@ -1,0 +1,18 @@
+FROM python:3.13-slim
+
+WORKDIR /app
+
+COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /bin/
+
+COPY pyproject.toml uv.lock ./
+RUN uv sync --frozen --no-install-project --no-dev
+
+COPY . .
+
+# Cloud Run injects $PORT at runtime (defaults to 8080) and expects the
+# container to bind to it — shell form (not exec-form CMD) is required so
+# $PORT actually expands; no --reload, this is an immutable deployed image.
+# Calling the venv's own binary directly (not `uv run`) avoids uv re-checking
+# the lockfile against pyproject.toml on every container start — that check
+# is a network/filesystem call we don't want on every cold start.
+CMD .venv/bin/uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-8080}
