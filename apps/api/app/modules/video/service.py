@@ -26,7 +26,7 @@ async def create_video(
     db.add(video)
     await db.flush()  # assigns video.id before it's needed as the storage key
 
-    video.storage_ref = await storage.save(video.id, content, content_type)
+    video.storage_ref = await storage.save(video.id, content, content_type, folder="videos")
     await db.commit()
     await db.refresh(video)
     return video
