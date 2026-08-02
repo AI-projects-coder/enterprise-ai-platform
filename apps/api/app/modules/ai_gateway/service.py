@@ -55,6 +55,13 @@ class GenerateResult:
     kind: Literal["text", "tool_calls"]
     text: str | None = None
     calls: list[dict] | None = None
+    # Token counts, surfaced here (not just logged) so callers — specifically
+    # agents/service.py — can record them as analytics usage events without
+    # this module needing to know analytics exists.
+    prompt_tokens: int = 0
+    response_tokens: int = 0
+    thoughts_tokens: int = 0
+    total_tokens: int = 0
 
 
 async def embed(text: str) -> list[float]:
@@ -180,6 +187,12 @@ async def generate(history: list[Message], tools: list[ToolDeclaration] | None =
         "thoughts_tokens": usage.thoughts_token_count if usage else None,
         "total_tokens": usage.total_token_count if usage else None,
     }
+    token_kwargs = {
+        "prompt_tokens": usage.prompt_token_count if usage else 0,
+        "response_tokens": usage.candidates_token_count if usage else 0,
+        "thoughts_tokens": usage.thoughts_token_count if usage else 0,
+        "total_tokens": usage.total_token_count if usage else 0,
+    }
 
     if response.function_calls:
         # Walk the raw parts (not the response.function_calls convenience
@@ -202,7 +215,7 @@ async def generate(history: list[Message], tools: list[ToolDeclaration] | None =
             "generate_completed",
             extra={**log_fields, "outcome": "tool_calls", "tool_call_count": len(calls)},
         )
-        return GenerateResult(kind="tool_calls", calls=calls)
+        return GenerateResult(kind="tool_calls", calls=calls, **token_kwargs)
 
     logger.info("generate_completed", extra={**log_fields, "outcome": "text"})
-    return GenerateResult(kind="text", text=response.text or "")
+    return GenerateResult(kind="text", text=response.text or "", **token_kwargs)

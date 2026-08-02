@@ -6,10 +6,27 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.modules.agents.tools import build_tools
 from app.modules.ai_gateway.schemas import ChatRequest, ChatResponse, ToolDeclaration
-from app.modules.ai_gateway.service import generate
+from app.modules.ai_gateway.service import MODEL, GenerateResult, generate
+from app.modules.analytics.service import record_usage_event
 from app.modules.memory import service as memory_service
 
 MAX_TOOL_ITERATIONS = 5
+
+
+async def _record_usage(db: AsyncSession, user_id: uuid.UUID, result: GenerateResult) -> None:
+    # One row per generate() call, not per chat turn — a single user message
+    # can trigger several LLM calls (tool-decision, then final answer), each
+    # separately billed by Gemini, so each gets its own usage event.
+    await record_usage_event(
+        db,
+        user_id,
+        event_type="chat_generate",
+        model=MODEL,
+        prompt_tokens=result.prompt_tokens,
+        response_tokens=result.response_tokens,
+        thoughts_tokens=result.thoughts_tokens,
+        total_tokens=result.total_tokens,
+    )
 
 
 async def run_chat(db: AsyncSession, user_id: uuid.UUID, data: ChatRequest) -> ChatResponse:
@@ -31,6 +48,7 @@ async def run_chat(db: AsyncSession, user_id: uuid.UUID, data: ChatRequest) -> C
     for _ in range(MAX_TOOL_ITERATIONS):
         history = await memory_service.list_messages(db, conversation.id)
         result = await generate(history, tools=declarations)
+        await _record_usage(db, user_id, result)
 
         if result.kind == "text":
             await memory_service.add_message(db, conversation.id, "assistant", result.text)
@@ -59,6 +77,7 @@ async def run_chat(db: AsyncSession, user_id: uuid.UUID, data: ChatRequest) -> C
     # be a runaway-cost incident, not just a wrong answer.
     history = await memory_service.list_messages(db, conversation.id)
     result = await generate(history, tools=None)
+    await _record_usage(db, user_id, result)
     text = result.text if result.kind == "text" else "I wasn't able to complete that request."
     await memory_service.add_message(db, conversation.id, "assistant", text)
     return ChatResponse(reply=text, conversation_id=conversation.id)

@@ -8,4 +8,5 @@ export type ModuleDef = {
 export const MODULE_REGISTRY: ModuleDef[] = [
   { route: "/dashboard/chat", label: "Chat", icon: "💬" },
   { route: "/dashboard/knowledge", label: "Knowledge", icon: "📚" },
+  { route: "/dashboard/analytics", label: "Analytics", icon: "📊" },
 ];
