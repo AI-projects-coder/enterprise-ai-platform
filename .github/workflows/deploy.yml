@@ -1,0 +1,94 @@
+name: Deploy
+
+on:
+  push:
+    branches: [main, stage, sandbox]
+
+permissions:
+  contents: read
+  id-token: write # required for Workload Identity Federation — no downloaded key
+
+env:
+  REGION: asia-south1
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    # main -> production, stage/sandbox -> matching environment name. Each
+    # GitHub Environment holds this branch's project/WIF/SA variables and,
+    # for production, a required-reviewer approval gate.
+    environment: ${{ github.ref_name == 'main' && 'production' || github.ref_name }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - id: auth
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ vars.WIF_PROVIDER }}
+          service_account: ${{ vars.DEPLOY_SA }}
+
+      - uses: google-github-actions/setup-gcloud@v2
+
+      - name: Configure Docker for Artifact Registry
+        run: gcloud auth configure-docker ${{ env.REGION }}-docker.pkg.dev --quiet
+
+      - name: Build and push api image
+        run: |
+          IMAGE=${{ env.REGION }}-docker.pkg.dev/${{ vars.GCP_PROJECT_ID }}/containers/api:${{ github.sha }}
+          docker build -f apps/api/Dockerfile.prod -t "$IMAGE" apps/api
+          docker push "$IMAGE"
+
+      - name: Run database migrations (Cloud Run Job, same image as the service)
+        run: |
+          IMAGE=${{ env.REGION }}-docker.pkg.dev/${{ vars.GCP_PROJECT_ID }}/containers/api:${{ github.sha }}
+          gcloud run jobs deploy migrate \
+            --image="$IMAGE" \
+            --region=${{ env.REGION }} \
+            --project=${{ vars.GCP_PROJECT_ID }} \
+            --set-cloudsql-instances=${{ vars.SQL_CONNECTION_NAME }} \
+            --set-secrets=DATABASE_URL=DATABASE_URL:latest,JWT_SECRET=JWT_SECRET:latest,GEMINI_API_KEY=GEMINI_API_KEY:latest \
+            --set-env-vars=JWT_ALGORITHM=HS256,ACCESS_TOKEN_EXPIRE_MINUTES=30 \
+            --command=.venv/bin/alembic \
+            --args=upgrade,head \
+            --service-account=api-runtime@${{ vars.GCP_PROJECT_ID }}.iam.gserviceaccount.com \
+            --max-retries=0
+          gcloud run jobs execute migrate --region=${{ env.REGION }} --project=${{ vars.GCP_PROJECT_ID }} --wait
+
+      - name: Deploy api service
+        run: |
+          IMAGE=${{ env.REGION }}-docker.pkg.dev/${{ vars.GCP_PROJECT_ID }}/containers/api:${{ github.sha }}
+          gcloud run deploy api \
+            --image="$IMAGE" \
+            --region=${{ env.REGION }} \
+            --project=${{ vars.GCP_PROJECT_ID }} \
+            --platform=managed \
+            --allow-unauthenticated \
+            --set-cloudsql-instances=${{ vars.SQL_CONNECTION_NAME }} \
+            --set-secrets=DATABASE_URL=DATABASE_URL:latest,JWT_SECRET=JWT_SECRET:latest,GEMINI_API_KEY=GEMINI_API_KEY:latest \
+            --set-env-vars=JWT_ALGORITHM=HS256,ACCESS_TOKEN_EXPIRE_MINUTES=30 \
+            --service-account=api-runtime@${{ vars.GCP_PROJECT_ID }}.iam.gserviceaccount.com \
+            --min-instances=0 --max-instances=3
+
+      - id: api_url
+        name: Read deployed api URL
+        run: |
+          URL=$(gcloud run services describe api --region=${{ env.REGION }} --project=${{ vars.GCP_PROJECT_ID }} --format='value(status.url)')
+          echo "url=$URL" >> "$GITHUB_OUTPUT"
+
+      - name: Build and push web image
+        run: |
+          IMAGE=${{ env.REGION }}-docker.pkg.dev/${{ vars.GCP_PROJECT_ID }}/containers/web:${{ github.sha }}
+          docker build -f apps/web/Dockerfile.prod -t "$IMAGE" apps/web
+          docker push "$IMAGE"
+
+      - name: Deploy web service
+        run: |
+          IMAGE=${{ env.REGION }}-docker.pkg.dev/${{ vars.GCP_PROJECT_ID }}/containers/web:${{ github.sha }}
+          gcloud run deploy web \
+            --image="$IMAGE" \
+            --region=${{ env.REGION }} \
+            --project=${{ vars.GCP_PROJECT_ID }} \
+            --platform=managed \
+            --allow-unauthenticated \
+            --set-env-vars=API_INTERNAL_URL=${{ steps.api_url.outputs.url }} \
+            --min-instances=0 --max-instances=3
