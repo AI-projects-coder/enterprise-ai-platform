@@ -11,6 +11,7 @@ from app.core.security import decode_access_token
 from app.modules.auth.models import User
 from app.modules.auth.schemas import TokenResponse, UserCreate, UserLogin, UserRead
 from app.modules.auth.service import authenticate_user, register_user
+from app.modules.enterprise.service import consume_invite, record_audit_log, validate_invite
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/auth/login")
@@ -34,7 +35,25 @@ async def get_current_user(
 
 @router.post("/register", response_model=UserRead, status_code=status.HTTP_201_CREATED)
 async def register(data: UserCreate, db: AsyncSession = Depends(get_db)):
-    return await register_user(db, data)
+    # Coordination lives here, not in auth/service.py — same router-level
+    # pattern as ADR 0004/0005: auth doesn't know an invite system exists,
+    # enterprise doesn't own user creation, so the router is what connects
+    # them for this one request.
+    invite = None
+    if data.invite_token:
+        invite = await validate_invite(db, data.invite_token)
+
+    user = await register_user(
+        db, data, org_id=invite.org_id if invite else None, role="member" if invite else "owner"
+    )
+
+    if invite:
+        await consume_invite(db, invite, user.id)
+        await record_audit_log(db, user.org_id, user.id, "member_joined", {"email": user.email})
+    else:
+        await record_audit_log(db, user.org_id, user.id, "org_created", {"email": user.email})
+
+    return user
 
 
 @router.post("/login", response_model=TokenResponse)

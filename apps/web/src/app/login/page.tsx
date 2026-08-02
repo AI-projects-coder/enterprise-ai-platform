@@ -1,11 +1,14 @@
 "use client";
 
-import { useState } from "react";
-import { useRouter } from "next/navigation";
+import { Suspense, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 
-export default function LoginPage() {
+function LoginForm() {
   const router = useRouter();
-  const [mode, setMode] = useState<"login" | "register">("login");
+  const searchParams = useSearchParams();
+  const inviteToken = searchParams.get("invite");
+
+  const [mode, setMode] = useState<"login" | "register">(inviteToken ? "register" : "login");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -20,7 +23,7 @@ export default function LoginPage() {
       if (mode === "register") {
         const res = await fetch("/api/auth/register", {
           method: "POST",
-          body: JSON.stringify({ email, password }),
+          body: JSON.stringify({ email, password, invite_token: inviteToken || undefined }),
         });
         if (!res.ok) throw new Error((await res.json()).detail);
       }
@@ -46,6 +49,13 @@ export default function LoginPage() {
         <h1 className="text-xl font-semibold">
           {mode === "login" ? "Log in" : "Create account"}
         </h1>
+
+        {inviteToken && mode === "register" && (
+          <p className="text-sm text-black/60 dark:text-white/60">
+            You&apos;ve been invited to join an organization — creating an account will add you
+            as a member.
+          </p>
+        )}
 
         <input
           type="email"
@@ -75,14 +85,24 @@ export default function LoginPage() {
           {loading ? "..." : mode === "login" ? "Log in" : "Sign up"}
         </button>
 
-        <button
-          type="button"
-          onClick={() => setMode(mode === "login" ? "register" : "login")}
-          className="text-sm underline"
-        >
-          {mode === "login" ? "Need an account? Sign up" : "Have an account? Log in"}
-        </button>
+        {!inviteToken && (
+          <button
+            type="button"
+            onClick={() => setMode(mode === "login" ? "register" : "login")}
+            className="text-sm underline"
+          >
+            {mode === "login" ? "Need an account? Sign up" : "Have an account? Log in"}
+          </button>
+        )}
       </form>
     </div>
+  );
+}
+
+export default function LoginPage() {
+  return (
+    <Suspense>
+      <LoginForm />
+    </Suspense>
   );
 }
