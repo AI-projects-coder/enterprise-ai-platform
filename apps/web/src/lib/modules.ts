@@ -1,0 +1,11 @@
+export type ModuleDef = {
+  route: string;
+  label: string;
+  icon: string;
+  requiredPermission?: string;
+};
+
+export const MODULE_REGISTRY: ModuleDef[] = [
+  { route: "/dashboard/chat", label: "Chat", icon: "💬" },
+  { route: "/dashboard/knowledge", label: "Knowledge", icon: "📚" },
+];

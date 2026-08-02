@@ -1,0 +1,57 @@
+services:
+  postgres:
+    image: pgvector/pgvector:pg16
+    environment:
+      POSTGRES_DB: platform
+      POSTGRES_USER: platform
+      POSTGRES_PASSWORD: platform
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U platform"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  api:
+    build:
+      context: ../../apps/api
+    env_file:
+      - ../../apps/api/.env
+    environment:
+      DATABASE_URL: postgresql+asyncpg://platform:platform@postgres:5432/platform
+      JWT_SECRET: dev-secret-change-me
+      JWT_ALGORITHM: HS256
+      ACCESS_TOKEN_EXPIRE_MINUTES: "30"
+    ports:
+      - "8000:8000"
+    volumes:
+      - ../../apps/api:/app
+      - api-venv:/app/.venv
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  web:
+    build:
+      context: ../../apps/web
+    environment:
+      API_INTERNAL_URL: http://api:8000
+    ports:
+      - "3000:3000"
+    volumes:
+      - ../../apps/web:/app
+      - web-node-modules:/app/node_modules
+      - web-next-cache:/app/.next
+      - web-pnpm-store:/pnpm/store
+    depends_on:
+      - api
+
+volumes:
+  postgres-data:
+  api-venv:
+  web-node-modules:
+  web-next-cache:
+  web-pnpm-store:

@@ -1,0 +1,26 @@
+# Python
+__pycache__/
+*.pyc
+.venv/
+.uv/
+*.egg-info/
+
+# Node
+node_modules/
+.next/
+dist/
+build/
+.pnpm-store/
+
+# Env
+.env
+.env.*
+!.env.example
+
+# Editors / OS
+.DS_Store
+.vscode/
+.idea/
+
+# Docker
+infra/docker/pgdata/
