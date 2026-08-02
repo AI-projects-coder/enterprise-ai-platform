@@ -6,6 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 import jwt
 
 from app.core.database import get_db
+from app.core.logging import user_id_var
 from app.core.security import decode_access_token
 from app.modules.auth.models import User
 from app.modules.auth.schemas import TokenResponse, UserCreate, UserLogin, UserRead
@@ -26,6 +27,8 @@ async def get_current_user(
     user = await db.get(User, user_id)
     if not user:
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "User not found")
+
+    user_id_var.set(str(user.id))
     return user
 
 

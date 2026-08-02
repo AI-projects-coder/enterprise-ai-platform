@@ -1,6 +1,8 @@
 import base64
 import json
+import logging
 import os
+import time
 from dataclasses import dataclass
 from typing import Literal, NoReturn
 
@@ -13,6 +15,8 @@ from app.modules.memory.models import Message
 
 MODEL = "gemini-3.6-flash"
 EMBED_MODEL = "gemini-embedding-2"
+
+logger = logging.getLogger("app.llm")
 
 _client: genai.Client | None = None
 
@@ -60,11 +64,28 @@ async def embed(text: str) -> list[float]:
     configuration itself."""
     _check_configured()
 
+    start = time.perf_counter()
     try:
         response = await _get_client().aio.models.embed_content(model=EMBED_MODEL, contents=text)
     except errors.APIError as e:
+        logger.error(
+            "embed_failed",
+            extra={
+                "model": EMBED_MODEL,
+                "duration_ms": round((time.perf_counter() - start) * 1000, 2),
+                "gemini_error": e.message,
+            },
+        )
         _handle_api_error(e)
 
+    logger.info(
+        "embed_completed",
+        extra={
+            "model": EMBED_MODEL,
+            "duration_ms": round((time.perf_counter() - start) * 1000, 2),
+            "input_chars": len(text),
+        },
+    )
     return response.embeddings[0].values
 
 
@@ -130,10 +151,35 @@ async def generate(history: list[Message], tools: list[ToolDeclaration] | None =
         )
         config = types.GenerateContentConfig(tools=[declarations])
 
+    start = time.perf_counter()
     try:
         response = await _get_client().aio.models.generate_content(model=MODEL, contents=contents, config=config)
     except errors.APIError as e:
+        logger.error(
+            "generate_failed",
+            extra={
+                "model": MODEL,
+                "duration_ms": round((time.perf_counter() - start) * 1000, 2),
+                "tools_offered": bool(tools),
+                "gemini_error": e.message,
+            },
+        )
         _handle_api_error(e)
+
+    duration_ms = round((time.perf_counter() - start) * 1000, 2)
+    usage = response.usage_metadata
+    log_fields = {
+        "model": MODEL,
+        "duration_ms": duration_ms,
+        "tools_offered": bool(tools),
+        # Token counts are the actual cost signal for an LLM-backed
+        # endpoint — thoughts_token_count matters specifically for Gemini 3,
+        # whose extended thinking is billed as output tokens too.
+        "prompt_tokens": usage.prompt_token_count if usage else None,
+        "response_tokens": usage.candidates_token_count if usage else None,
+        "thoughts_tokens": usage.thoughts_token_count if usage else None,
+        "total_tokens": usage.total_token_count if usage else None,
+    }
 
     if response.function_calls:
         # Walk the raw parts (not the response.function_calls convenience
@@ -152,6 +198,11 @@ async def generate(history: list[Message], tools: list[ToolDeclaration] | None =
             for p in response_parts
             if p.function_call is not None
         ]
+        logger.info(
+            "generate_completed",
+            extra={**log_fields, "outcome": "tool_calls", "tool_call_count": len(calls)},
+        )
         return GenerateResult(kind="tool_calls", calls=calls)
 
+    logger.info("generate_completed", extra={**log_fields, "outcome": "text"})
     return GenerateResult(kind="text", text=response.text or "")

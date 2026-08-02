@@ -15,4 +15,8 @@ COPY . .
 # Calling the venv's own binary directly (not `uv run`) avoids uv re-checking
 # the lockfile against pyproject.toml on every container start — that check
 # is a network/filesystem call we don't want on every cold start.
-CMD .venv/bin/uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-8080}
+
+# --no-access-log: uvicorn's own access log is plain text and would
+# duplicate the structured "request_handled" line the app already emits
+# per request (app/core/logging.py) — in a worse, unparseable format.
+CMD .venv/bin/uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-8080} --no-access-log
