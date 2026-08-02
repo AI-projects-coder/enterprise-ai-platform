@@ -65,7 +65,7 @@ jobs:
             --no-allow-unauthenticated \
             --set-cloudsql-instances=${{ vars.SQL_CONNECTION_NAME }} \
             --set-secrets=DATABASE_URL=DATABASE_URL:latest,JWT_SECRET=JWT_SECRET:latest,GEMINI_API_KEY=GEMINI_API_KEY:latest \
-            --set-env-vars=JWT_ALGORITHM=HS256,ACCESS_TOKEN_EXPIRE_MINUTES=30 \
+            --set-env-vars=JWT_ALGORITHM=HS256,ACCESS_TOKEN_EXPIRE_MINUTES=30,GCS_BUCKET=${{ vars.GCS_BUCKET }} \
             --service-account=api-runtime@${{ vars.GCP_PROJECT_ID }}.iam.gserviceaccount.com \
             --min-instances=0 --max-instances=3
 
