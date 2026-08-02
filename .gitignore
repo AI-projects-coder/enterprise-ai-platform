@@ -24,3 +24,7 @@ build/
 
 # Docker
 infra/docker/pgdata/
+
+# Local video storage fallback (see apps/api/app/core/storage.py) — dev-only,
+# real environments use GCS
+apps/api/video_storage/

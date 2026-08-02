@@ -7,6 +7,7 @@ from app.modules.auth.router import router as auth_router
 from app.modules.enterprise.router import router as enterprise_router
 from app.modules.knowledge.router import router as knowledge_router
 from app.modules.memory.router import router as memory_router
+from app.modules.video.router import router as video_router
 
 configure_logging()
 
@@ -19,6 +20,7 @@ app.include_router(enterprise_router)
 app.include_router(ai_gateway_router)
 app.include_router(memory_router)
 app.include_router(knowledge_router)
+app.include_router(video_router)
 
 
 @app.get("/health")

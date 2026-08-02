@@ -28,11 +28,15 @@ async function getIdentityToken(): Promise<string | null> {
 
 export async function apiFetch(path: string, init?: RequestInit) {
   const identityToken = await getIdentityToken();
+  // FormData (video upload) needs its own auto-generated multipart
+  // boundary in Content-Type — setting "application/json" here would
+  // break it, so this is the one case where we let fetch set it itself.
+  const isFormData = init?.body instanceof FormData;
 
   const res = await fetch(`${API_URL}${path}`, {
     ...init,
     headers: {
-      "Content-Type": "application/json",
+      ...(isFormData ? {} : { "Content-Type": "application/json" }),
       ...(identityToken ? { "X-Serverless-Authorization": `Bearer ${identityToken}` } : {}),
       ...init?.headers,
     },

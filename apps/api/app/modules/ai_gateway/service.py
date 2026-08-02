@@ -64,6 +64,53 @@ class GenerateResult:
     total_tokens: int = 0
 
 
+VIDEO_ANALYSIS_PROMPT = (
+    "Watch this video and produce plain text with two clearly labeled sections: "
+    "1) SUMMARY — a concise summary of what happens/is discussed. "
+    "2) TRANSCRIPT — a full transcript of any spoken content, or 'No speech detected' "
+    "if there is none. This text will be indexed for search, so be thorough and factual."
+)
+
+
+async def analyze_video(video_bytes: bytes, mime_type: str) -> str:
+    """One-shot video → text extraction, not part of the chat tool-calling
+    loop — called once at upload time (video/service.py), and the resulting
+    text flows into knowledge.ingest_document like any uploaded document, so
+    video content becomes searchable via the existing search_knowledge tool
+    with zero new agent-tool code."""
+    _check_configured()
+
+    contents = [
+        types.Content(
+            role="user",
+            parts=[
+                types.Part.from_bytes(data=video_bytes, mime_type=mime_type),
+                types.Part.from_text(text=VIDEO_ANALYSIS_PROMPT),
+            ],
+        )
+    ]
+
+    start = time.perf_counter()
+    try:
+        response = await _get_client().aio.models.generate_content(model=MODEL, contents=contents)
+    except errors.APIError as e:
+        logger.error(
+            "analyze_video_failed",
+            extra={
+                "model": MODEL,
+                "duration_ms": round((time.perf_counter() - start) * 1000, 2),
+                "gemini_error": e.message,
+            },
+        )
+        _handle_api_error(e)
+
+    logger.info(
+        "analyze_video_completed",
+        extra={"model": MODEL, "duration_ms": round((time.perf_counter() - start) * 1000, 2)},
+    )
+    return response.text or ""
+
+
 async def embed(text: str) -> list[float]:
     """Called from ai_gateway itself (query embedding, via the search_knowledge
     tool) and from knowledge (chunk embedding at ingestion) — an independent
