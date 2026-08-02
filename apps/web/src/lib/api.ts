@@ -6,10 +6,36 @@ export class ApiError extends Error {
   }
 }
 
+// api is a private Cloud Run service (--no-allow-unauthenticated) — this
+// fetches a Google-signed ID token from the Cloud Run metadata server so
+// Cloud Run's own IAM layer lets the request through. K_SERVICE only exists
+// on Cloud Run, never in local dev, so local docker-compose is unaffected
+// (api there has no IAM check at all). Sent via X-Serverless-Authorization,
+// not Authorization — that header is reserved for the end user's JWT, which
+// apiFetch callers set via init.headers; Cloud Run strips
+// X-Serverless-Authorization before it ever reaches our container, so
+// there's no collision on either side.
+async function getIdentityToken(): Promise<string | null> {
+  if (!process.env.K_SERVICE) return null;
+
+  const metadataUrl = `http://metadata.google.internal/computeMetadata/v1/instance/service-accounts/default/identity?audience=${encodeURIComponent(API_URL)}`;
+  const res = await fetch(metadataUrl, { headers: { "Metadata-Flavor": "Google" } });
+  if (!res.ok) {
+    throw new Error(`Failed to fetch Cloud Run identity token: ${res.status}`);
+  }
+  return res.text();
+}
+
 export async function apiFetch(path: string, init?: RequestInit) {
+  const identityToken = await getIdentityToken();
+
   const res = await fetch(`${API_URL}${path}`, {
     ...init,
-    headers: { "Content-Type": "application/json", ...init?.headers },
+    headers: {
+      "Content-Type": "application/json",
+      ...(identityToken ? { "X-Serverless-Authorization": `Bearer ${identityToken}` } : {}),
+      ...init?.headers,
+    },
   });
 
   if (!res.ok) {

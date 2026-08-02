@@ -62,12 +62,20 @@ jobs:
             --region=${{ env.REGION }} \
             --project=${{ vars.GCP_PROJECT_ID }} \
             --platform=managed \
-            --allow-unauthenticated \
+            --no-allow-unauthenticated \
             --set-cloudsql-instances=${{ vars.SQL_CONNECTION_NAME }} \
             --set-secrets=DATABASE_URL=DATABASE_URL:latest,JWT_SECRET=JWT_SECRET:latest,GEMINI_API_KEY=GEMINI_API_KEY:latest \
             --set-env-vars=JWT_ALGORITHM=HS256,ACCESS_TOKEN_EXPIRE_MINUTES=30 \
             --service-account=api-runtime@${{ vars.GCP_PROJECT_ID }}.iam.gserviceaccount.com \
             --min-instances=0 --max-instances=3
+
+      - name: Allow only web's runtime identity to call api
+        run: |
+          gcloud run services add-iam-policy-binding api \
+            --region=${{ env.REGION }} \
+            --project=${{ vars.GCP_PROJECT_ID }} \
+            --member="serviceAccount:web-runtime@${{ vars.GCP_PROJECT_ID }}.iam.gserviceaccount.com" \
+            --role="roles/run.invoker"
 
       - id: api_url
         name: Read deployed api URL
@@ -90,5 +98,6 @@ jobs:
             --project=${{ vars.GCP_PROJECT_ID }} \
             --platform=managed \
             --allow-unauthenticated \
+            --service-account=web-runtime@${{ vars.GCP_PROJECT_ID }}.iam.gserviceaccount.com \
             --set-env-vars=API_INTERNAL_URL=${{ steps.api_url.outputs.url }} \
             --min-instances=0 --max-instances=3
