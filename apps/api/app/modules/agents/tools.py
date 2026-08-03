@@ -5,6 +5,7 @@ from typing import Awaitable, Callable
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.modules.cloud_configs import service as cloud_configs_service
 from app.modules.datasets import service as datasets_service
 from app.modules.knowledge.service import retrieve_relevant_chunks
 
@@ -28,11 +29,11 @@ async def _get_current_datetime() -> dict:
     return {"utc_datetime": datetime.now(timezone.utc).isoformat()}
 
 
-def _dataset_id_or_error(dataset_id: str) -> uuid.UUID | dict:
+def _id_or_error(raw_id: str, label: str) -> uuid.UUID | dict:
     try:
-        return uuid.UUID(dataset_id)
+        return uuid.UUID(raw_id)
     except ValueError:
-        return {"error": f"'{dataset_id}' is not a valid dataset id"}
+        return {"error": f"'{raw_id}' is not a valid {label} id"}
 
 
 # Each wrapper resolves dataset_id -> UUID itself and returns a clean error
@@ -45,21 +46,21 @@ async def _list_datasets(db: AsyncSession, user_id: uuid.UUID) -> dict:
 
 
 async def _sample_rows(db: AsyncSession, user_id: uuid.UUID, dataset_id: str, n: int = 5) -> dict:
-    parsed = _dataset_id_or_error(dataset_id)
+    parsed = _id_or_error(dataset_id, "dataset")
     if isinstance(parsed, dict):
         return parsed
     return await datasets_service.sample_rows(db, user_id, parsed, n)
 
 
 async def _describe_dataset(db: AsyncSession, user_id: uuid.UUID, dataset_id: str) -> dict:
-    parsed = _dataset_id_or_error(dataset_id)
+    parsed = _id_or_error(dataset_id, "dataset")
     if isinstance(parsed, dict):
         return parsed
     return await datasets_service.describe_dataset(db, user_id, parsed)
 
 
 async def _correlation_matrix(db: AsyncSession, user_id: uuid.UUID, dataset_id: str) -> dict:
-    parsed = _dataset_id_or_error(dataset_id)
+    parsed = _id_or_error(dataset_id, "dataset")
     if isinstance(parsed, dict):
         return parsed
     return await datasets_service.correlation_matrix(db, user_id, parsed)
@@ -73,12 +74,37 @@ async def _group_by_aggregate(
     agg_column: str,
     agg_function: str,
 ) -> dict:
-    parsed = _dataset_id_or_error(dataset_id)
+    parsed = _id_or_error(dataset_id, "dataset")
     if isinstance(parsed, dict):
         return parsed
     return await datasets_service.group_by_aggregate(
         db, user_id, parsed, group_by, agg_column, agg_function
     )
+
+
+async def _list_cloud_configs(db: AsyncSession, user_id: uuid.UUID) -> dict:
+    return await cloud_configs_service.list_cloud_configs_for_agent(db, user_id)
+
+
+async def _list_cloud_resources(db: AsyncSession, user_id: uuid.UUID, config_id: str) -> dict:
+    parsed = _id_or_error(config_id, "cloud config")
+    if isinstance(parsed, dict):
+        return parsed
+    return await cloud_configs_service.list_resources(db, user_id, parsed)
+
+
+async def _check_security_issues(db: AsyncSession, user_id: uuid.UUID, config_id: str) -> dict:
+    parsed = _id_or_error(config_id, "cloud config")
+    if isinstance(parsed, dict):
+        return parsed
+    return await cloud_configs_service.check_security_issues(db, user_id, parsed)
+
+
+async def _estimate_cloud_cost(db: AsyncSession, user_id: uuid.UUID, config_id: str) -> dict:
+    parsed = _id_or_error(config_id, "cloud config")
+    if isinstance(parsed, dict):
+        return parsed
+    return await cloud_configs_service.estimate_monthly_cost(db, user_id, parsed)
 
 
 def build_tools(db: AsyncSession, user_id: uuid.UUID) -> list[AgentTool]:
@@ -193,5 +219,60 @@ def build_tools(db: AsyncSession, user_id: uuid.UUID) -> list[AgentTool]:
             handler=lambda dataset_id, group_by, agg_column, agg_function: _group_by_aggregate(
                 db, user_id, dataset_id, group_by, agg_column, agg_function
             ),
+        ),
+        AgentTool(
+            name="list_cloud_configs",
+            description=(
+                "List the user's uploaded Terraform infrastructure files, including each "
+                "one's id and a breakdown of resource types/counts. Call this first whenever "
+                "a question is about uploaded infrastructure, to find the config id."
+            ),
+            parameters={"type": "object", "properties": {}, "additionalProperties": False},
+            handler=lambda: _list_cloud_configs(db, user_id),
+        ),
+        AgentTool(
+            name="list_cloud_resources",
+            description=(
+                "List every resource declared in an uploaded Terraform file, with its type, "
+                "name, and attributes. Use the config id from list_cloud_configs."
+            ),
+            parameters={
+                "type": "object",
+                "properties": {"config_id": {"type": "string", "description": "The cloud config's id"}},
+                "required": ["config_id"],
+                "additionalProperties": False,
+            },
+            handler=lambda config_id: _list_cloud_resources(db, user_id, config_id),
+        ),
+        AgentTool(
+            name="check_cloud_security_issues",
+            description=(
+                "Run fixed security/best-practice checks against an uploaded Terraform file: "
+                "hardcoded secrets, network rules open to the whole internet (0.0.0.0/0), and "
+                "overly broad IAM roles (owner/editor). Use the config id from list_cloud_configs."
+            ),
+            parameters={
+                "type": "object",
+                "properties": {"config_id": {"type": "string", "description": "The cloud config's id"}},
+                "required": ["config_id"],
+                "additionalProperties": False,
+            },
+            handler=lambda config_id: _check_security_issues(db, user_id, config_id),
+        ),
+        AgentTool(
+            name="estimate_cloud_cost",
+            description=(
+                "Get a rough, illustrative monthly cost estimate for an uploaded Terraform "
+                "file, itemized per resource. This is a flat heuristic lookup, NOT real cloud "
+                "billing data — always tell the user it's a rough estimate, not a real quote. "
+                "Use the config id from list_cloud_configs."
+            ),
+            parameters={
+                "type": "object",
+                "properties": {"config_id": {"type": "string", "description": "The cloud config's id"}},
+                "required": ["config_id"],
+                "additionalProperties": False,
+            },
+            handler=lambda config_id: _estimate_cloud_cost(db, user_id, config_id),
         ),
     ]

@@ -9,6 +9,7 @@ from app.core.config import settings
 from app.core.database import Base
 from app.modules.analytics.models import UsageEvent  # noqa: F401 — registers metadata
 from app.modules.auth.models import Org, User  # noqa: F401 — registers metadata
+from app.modules.cloud_configs.models import CloudConfig  # noqa: F401 — registers metadata
 from app.modules.datasets.models import Dataset  # noqa: F401 — registers metadata
 from app.modules.enterprise.models import AuditLog, Invite  # noqa: F401 — registers metadata
 from app.modules.knowledge.models import Chunk, Document  # noqa: F401 — registers metadata

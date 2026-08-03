@@ -12,4 +12,5 @@ export const MODULE_REGISTRY: ModuleDef[] = [
   { route: "/dashboard/team", label: "Team", icon: "👥" },
   { route: "/dashboard/video", label: "Video", icon: "🎬" },
   { route: "/dashboard/datasets", label: "Data Scientist", icon: "📈" },
+  { route: "/dashboard/cloud-configs", label: "Cloud Architect", icon: "☁️" },
 ];

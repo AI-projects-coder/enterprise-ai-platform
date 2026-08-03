@@ -4,6 +4,7 @@ from app.core.logging import RequestLoggingMiddleware, configure_logging
 from app.modules.ai_gateway.router import router as ai_gateway_router
 from app.modules.analytics.router import router as analytics_router
 from app.modules.auth.router import router as auth_router
+from app.modules.cloud_configs.router import router as cloud_configs_router
 from app.modules.datasets.router import router as datasets_router
 from app.modules.enterprise.router import router as enterprise_router
 from app.modules.knowledge.router import router as knowledge_router
@@ -23,6 +24,7 @@ app.include_router(memory_router)
 app.include_router(knowledge_router)
 app.include_router(video_router)
 app.include_router(datasets_router)
+app.include_router(cloud_configs_router)
 
 
 @app.get("/health")
