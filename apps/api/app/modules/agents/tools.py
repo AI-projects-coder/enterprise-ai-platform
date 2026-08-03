@@ -7,6 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.modules.cloud_configs import service as cloud_configs_service
 from app.modules.datasets import service as datasets_service
+from app.modules.incidents import service as incidents_service
 from app.modules.knowledge.service import retrieve_relevant_chunks
 
 
@@ -107,11 +108,15 @@ async def _estimate_cloud_cost(db: AsyncSession, user_id: uuid.UUID, config_id: 
     return await cloud_configs_service.estimate_monthly_cost(db, user_id, parsed)
 
 
-def build_tools(db: AsyncSession, user_id: uuid.UUID) -> list[AgentTool]:
+def build_tools(db: AsyncSession, user_id: uuid.UUID, is_owner: bool = False) -> list[AgentTool]:
     """Built fresh per request, not module-level — handlers close over this
     request's db session and user_id, so a module-level registry would leak
-    one user's session into another user's concurrent tool call."""
-    return [
+    one user's session into another user's concurrent tool call.
+    is_owner gates the incidents tools below — they expose this platform's
+    OWN operational internals (error logs, alert state, deploy history),
+    not org-scoped user data, so a regular member never even sees these
+    tools exist rather than being offered them and rejected."""
+    tools = [
         AgentTool(
             name="search_knowledge",
             description=(
@@ -276,3 +281,59 @@ def build_tools(db: AsyncSession, user_id: uuid.UUID) -> list[AgentTool]:
             handler=lambda config_id: _estimate_cloud_cost(db, user_id, config_id),
         ),
     ]
+
+    if is_owner:
+        tools.extend(
+            [
+                AgentTool(
+                    name="get_recent_errors",
+                    description=(
+                        "Get recent ERROR-severity log entries from this platform's own "
+                        "deployed api/web services, from real Cloud Logging. Use this to "
+                        "diagnose what's actually going wrong right now."
+                    ),
+                    parameters={
+                        "type": "object",
+                        "properties": {
+                            "minutes": {
+                                "type": "integer",
+                                "description": "How many minutes back to look (default 15)",
+                            }
+                        },
+                        "additionalProperties": False,
+                    },
+                    handler=lambda minutes=15: incidents_service.get_recent_errors(minutes),
+                ),
+                AgentTool(
+                    name="get_alert_policies",
+                    description=(
+                        "List this platform's configured Cloud Monitoring alert policies "
+                        "(uptime, error rate, Cloud SQL CPU, instance count) and whether each "
+                        "is currently enabled."
+                    ),
+                    parameters={"type": "object", "properties": {}, "additionalProperties": False},
+                    handler=lambda: incidents_service.get_alert_policies(),
+                ),
+                AgentTool(
+                    name="get_recent_deployments",
+                    description=(
+                        "List the most recent Cloud Run deployments (revisions) for the api "
+                        "and web services, with timestamps and whether each came up healthy. "
+                        "Use this to check whether a recent deploy correlates with an incident."
+                    ),
+                    parameters={
+                        "type": "object",
+                        "properties": {
+                            "limit": {
+                                "type": "integer",
+                                "description": "How many recent deployments to return (default 5)",
+                            }
+                        },
+                        "additionalProperties": False,
+                    },
+                    handler=lambda limit=5: incidents_service.get_recent_deployments(limit),
+                ),
+            ]
+        )
+
+    return tools

@@ -20,4 +20,4 @@ async def chat(
     # lives in agents/service.py now, not here — see
     # docs/architecture/0005-agent-tool-calling.md for why this replaced the
     # phase-4 always-on retrieval that used to live in this router.
-    return await run_chat(db, current_user.id, data)
+    return await run_chat(db, current_user.id, data, is_owner=current_user.role == "owner")

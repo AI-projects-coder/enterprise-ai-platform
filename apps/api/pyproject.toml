@@ -18,6 +18,9 @@ dependencies = [
     "google-cloud-storage>=2.18",
     "pandas>=2.2",
     "python-hcl2>=6.1",
+    "google-cloud-logging>=3.11",
+    "google-cloud-monitoring>=2.27",
+    "google-cloud-run>=0.10",
 ]
 
 [dependency-groups]

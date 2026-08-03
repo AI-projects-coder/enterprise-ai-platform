@@ -29,7 +29,7 @@ async def _record_usage(db: AsyncSession, user_id: uuid.UUID, result: GenerateRe
     )
 
 
-async def run_chat(db: AsyncSession, user_id: uuid.UUID, data: ChatRequest) -> ChatResponse:
+async def run_chat(db: AsyncSession, user_id: uuid.UUID, data: ChatRequest, is_owner: bool = False) -> ChatResponse:
     if data.conversation_id is None:
         conversation = await memory_service.create_conversation(db, user_id, title=data.message[:50])
     else:
@@ -39,7 +39,7 @@ async def run_chat(db: AsyncSession, user_id: uuid.UUID, data: ChatRequest) -> C
 
     await memory_service.add_message(db, conversation.id, "user", data.message)
 
-    tools = build_tools(db, user_id)
+    tools = build_tools(db, user_id, is_owner=is_owner)
     tools_by_name = {t.name: t for t in tools}
     declarations = [
         ToolDeclaration(name=t.name, description=t.description, parameters=t.parameters) for t in tools
