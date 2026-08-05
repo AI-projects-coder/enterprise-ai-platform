@@ -34,6 +34,16 @@ services:
       postgres:
         condition: service_healthy
 
+  # Not used by the app anywhere (see architecture notes — events/Redis is a
+  # possible future direction, not built yet). Added purely so there's a
+  # real local Redis to practice Redis Insight against.
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis-data:/data
+
   web:
     build:
       context: ../../apps/web
@@ -55,3 +65,4 @@ volumes:
   web-node-modules:
   web-next-cache:
   web-pnpm-store:
+  redis-data:
