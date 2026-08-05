@@ -36,6 +36,13 @@ class User(Base):
     # migration) — can invite members and view org-wide analytics/audit log.
     # "member": joined via an invite.
     role: Mapped[str] = mapped_column(String(20), default="owner")
+    # One of "student" / "job_seeker" / "it_professional" — mandatory at
+    # signup (see auth/schemas.py's UserCreate), captured for upcoming
+    # role/profession-based features. No Python-level default here on
+    # purpose: registration should fail loudly if this is ever missing,
+    # not silently default it — see the migration for how pre-existing rows
+    # were backfilled instead.
+    profession: Mapped[str] = mapped_column(String(20))
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
     )

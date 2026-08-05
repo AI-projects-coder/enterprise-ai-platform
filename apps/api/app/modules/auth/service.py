@@ -27,7 +27,13 @@ async def register_user(
         org_id = org.id
         role = "owner"
 
-    user = User(email=data.email, password_hash=hash_password(data.password), org_id=org_id, role=role)
+    user = User(
+        email=data.email,
+        password_hash=hash_password(data.password),
+        org_id=org_id,
+        role=role,
+        profession=data.profession,
+    )
     db.add(user)
     await db.commit()
     await db.refresh(user)

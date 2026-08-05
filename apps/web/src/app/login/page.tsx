@@ -11,6 +11,7 @@ function LoginForm() {
   const [mode, setMode] = useState<"login" | "register">(inviteToken ? "register" : "login");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [profession, setProfession] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
 
@@ -23,7 +24,7 @@ function LoginForm() {
       if (mode === "register") {
         const res = await fetch("/api/auth/register", {
           method: "POST",
-          body: JSON.stringify({ email, password, invite_token: inviteToken || undefined }),
+          body: JSON.stringify({ email, password, profession, invite_token: inviteToken || undefined }),
         });
         if (!res.ok) throw new Error((await res.json()).detail);
       }
@@ -74,6 +75,22 @@ function LoginForm() {
           onChange={(e) => setPassword(e.target.value)}
           className="border border-black/20 dark:border-white/20 rounded px-3 py-2 bg-transparent"
         />
+
+        {mode === "register" && (
+          <select
+            required
+            value={profession}
+            onChange={(e) => setProfession(e.target.value)}
+            className="border border-black/20 dark:border-white/20 rounded px-3 py-2 bg-transparent"
+          >
+            <option value="" disabled>
+              Profession
+            </option>
+            <option value="student">Student</option>
+            <option value="job_seeker">Job Seeker</option>
+            <option value="it_professional">IT Professional</option>
+          </select>
+        )}
 
         {error && <p className="text-sm text-red-500">{error}</p>}
 
