@@ -111,6 +111,93 @@ async def analyze_video(video_bytes: bytes, mime_type: str) -> str:
     return response.text or ""
 
 
+@dataclass
+class Citation:
+    """One grounding_supports entry: a byte-offset span into GroundedResult.text
+    that a real web source backs up, plus that source's redirect URI(s).
+    start_byte/end_byte are UTF-8 BYTE offsets, NOT Python string character
+    offsets — verified live against a real response (naive text[start:end]
+    silently misaligned on every segment containing a multi-byte character
+    like an em-dash; text.encode("utf-8")[start:end].decode("utf-8") matched
+    exactly). Callers must slice/compare in byte-space, not char-space."""
+
+    start_byte: int
+    end_byte: int
+    source_urls: list[str]
+
+
+@dataclass
+class GroundedResult:
+    text: str
+    citations: list[Citation]
+
+
+async def generate_grounded(prompt: str) -> GroundedResult:
+    """One-shot generation with Gemini's Google Search grounding tool
+    enabled — NOT part of the chat tool-calling loop (agents/service.py),
+    since this isn't the model choosing to search; it's always grounded,
+    every call, by design (job_drives/service.py — plain generation here
+    would very likely fabricate dates/companies for a real-world,
+    time-sensitive query like campus drives). Verified live before writing
+    this: types.Tool(google_search=types.GoogleSearch()) is the current
+    google-genai shape for gemini-3.6-flash, confirmed against a real call
+    that returned real, current (not training-data-stale) results with
+    grounding_metadata.web_search_queries showing the actual searches run.
+
+    source_urls are raw grounding-api-redirect URIs, NOT the real destination
+    — verified live that these expire after a few days, so they're only
+    safe to resolve (follow the redirect once, keep the final URL) right
+    away, never to store or show as-is. Resolving is left to the caller
+    (job_drives/service.py) since it's a domain-specific formatting concern,
+    not something every grounded caller would necessarily want."""
+    _check_configured()
+
+    contents = [types.Content(role="user", parts=[types.Part.from_text(text=prompt)])]
+    config = types.GenerateContentConfig(tools=[types.Tool(google_search=types.GoogleSearch())])
+
+    start = time.perf_counter()
+    try:
+        response = await _get_client().aio.models.generate_content(
+            model=MODEL, contents=contents, config=config
+        )
+    except errors.APIError as e:
+        logger.error(
+            "generate_grounded_failed",
+            extra={
+                "model": MODEL,
+                "duration_ms": round((time.perf_counter() - start) * 1000, 2),
+                "gemini_error": e.message,
+            },
+        )
+        _handle_api_error(e)
+
+    text = response.text or ""
+    grounding = response.candidates[0].grounding_metadata if response.candidates else None
+    citations = []
+    if grounding and grounding.grounding_supports and grounding.grounding_chunks:
+        for support in grounding.grounding_supports:
+            urls = [
+                grounding.grounding_chunks[i].web.uri
+                for i in support.grounding_chunk_indices
+                if grounding.grounding_chunks[i].web
+            ]
+            if urls:
+                citations.append(Citation(support.segment.start_index, support.segment.end_index, urls))
+
+    logger.info(
+        "generate_grounded_completed",
+        extra={
+            "model": MODEL,
+            "duration_ms": round((time.perf_counter() - start) * 1000, 2),
+            # search_query_count is the real grounding cost signal (billed
+            # per search query, not per call — one call can run several).
+            "search_query_count": len(grounding.web_search_queries) if grounding and grounding.web_search_queries else 0,
+            "citation_count": len(citations),
+        },
+    )
+    return GroundedResult(text=text, citations=citations)
+
+
 async def embed(text: str) -> list[float]:
     """Called from ai_gateway itself (query embedding, via the search_knowledge
     tool) and from knowledge (chunk embedding at ingestion) — an independent

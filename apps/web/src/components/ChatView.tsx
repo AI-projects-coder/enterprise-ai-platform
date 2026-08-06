@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
+import { MarkdownContent } from "@/components/MarkdownContent";
 
 export type Message = { role: "user" | "assistant"; content: string };
 
@@ -60,10 +61,10 @@ export function ChatView({
             className={
               m.role === "user"
                 ? "self-end bg-foreground text-background rounded px-3 py-2 max-w-[80%]"
-                : "self-start bg-black/5 dark:bg-white/10 rounded px-3 py-2 max-w-[80%] whitespace-pre-wrap"
+                : "self-start bg-black/5 dark:bg-white/10 rounded px-3 py-2 max-w-[80%]"
             }
           >
-            {m.content}
+            {m.role === "assistant" ? <MarkdownContent content={m.content} /> : m.content}
           </div>
         ))}
         {loading && (

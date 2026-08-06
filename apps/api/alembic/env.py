@@ -12,6 +12,7 @@ from app.modules.auth.models import Org, User  # noqa: F401 — registers metada
 from app.modules.cloud_configs.models import CloudConfig  # noqa: F401 — registers metadata
 from app.modules.datasets.models import Dataset  # noqa: F401 — registers metadata
 from app.modules.enterprise.models import AuditLog, Invite  # noqa: F401 — registers metadata
+from app.modules.job_drives.models import JobDrive  # noqa: F401 — registers metadata
 from app.modules.knowledge.models import Chunk, Document  # noqa: F401 — registers metadata
 from app.modules.memory.models import Conversation, Message  # noqa: F401 — registers metadata
 from app.modules.video.models import Video  # noqa: F401 — registers metadata

@@ -73,6 +73,7 @@ dependencies = [
     { name = "google-cloud-run" },
     { name = "google-cloud-storage" },
     { name = "google-genai" },
+    { name = "httpx" },
     { name = "pandas" },
     { name = "pgvector" },
     { name = "pydantic-settings" },
@@ -85,7 +86,6 @@ dependencies = [
 
 [package.dev-dependencies]
 dev = [
-    { name = "httpx" },
     { name = "pytest" },
     { name = "pytest-asyncio" },
 ]
@@ -102,6 +102,7 @@ requires-dist = [
     { name = "google-cloud-run", specifier = ">=0.10" },
     { name = "google-cloud-storage", specifier = ">=2.18" },
     { name = "google-genai", specifier = ">=1.0" },
+    { name = "httpx", specifier = ">=0.27" },
     { name = "pandas", specifier = ">=2.2" },
     { name = "pgvector", specifier = ">=0.3" },
     { name = "pydantic-settings", specifier = ">=2.6" },
@@ -114,7 +115,6 @@ requires-dist = [
 
 [package.metadata.requires-dev]
 dev = [
-    { name = "httpx", specifier = ">=0.27" },
     { name = "pytest", specifier = ">=8.3" },
     { name = "pytest-asyncio", specifier = ">=0.24" },
 ]
