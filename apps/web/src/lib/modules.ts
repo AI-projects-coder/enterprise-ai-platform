@@ -10,7 +10,7 @@ export const MODULE_REGISTRY: ModuleDef[] = [
   { route: "/dashboard/knowledge", label: "Knowledge", icon: "📚" },
   { route: "/dashboard/analytics", label: "Analytics", icon: "📊" },
   { route: "/dashboard/team", label: "Team", icon: "👥" },
-  { route: "/dashboard/video", label: "Video", icon: "🎬" },
+  { route: "/dashboard/library", label: "Library", icon: "🎬" },
   { route: "/dashboard/datasets", label: "Data Scientist", icon: "📈" },
   { route: "/dashboard/cloud-configs", label: "Cloud Architect", icon: "☁️" },
   { route: "/dashboard/incidents", label: "Incident Response", icon: "🚨" },

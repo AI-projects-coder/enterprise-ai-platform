@@ -9,6 +9,7 @@ from typing import Literal, NoReturn
 from fastapi import HTTPException, status
 from google import genai
 from google.genai import errors, types
+from pydantic import BaseModel
 
 from app.modules.ai_gateway.schemas import ToolDeclaration
 from app.modules.memory.models import Message
@@ -64,20 +65,53 @@ class GenerateResult:
     total_tokens: int = 0
 
 
+class VideoTranscriptSegment(BaseModel):
+    start_seconds: float
+    end_seconds: float
+    text: str
+
+
+class VideoQuizQuestion(BaseModel):
+    question: str
+    type: Literal["single", "multi"]
+    options: list[str]
+    # 0-based indices into options — a list (not a single int) because
+    # "multi" questions can have more than one correct option.
+    correct_indices: list[int]
+
+
+class VideoAnalysis(BaseModel):
+    transcript: list[VideoTranscriptSegment]
+    summary: str
+    key_points: list[str]
+    quiz: list[VideoQuizQuestion]
+
+
 VIDEO_ANALYSIS_PROMPT = (
-    "Watch this video and produce plain text with two clearly labeled sections: "
-    "1) SUMMARY — a concise summary of what happens/is discussed. "
-    "2) TRANSCRIPT — a full transcript of any spoken content, or 'No speech detected' "
-    "if there is none. This text will be indexed for search, so be thorough and factual."
+    "Watch this video and produce a complete structured breakdown for a learning-platform "
+    "library feature.\n\n"
+    "1. transcript: the full spoken/on-screen content broken into short segments (roughly one "
+    "sentence or a few seconds each), each with start_seconds and end_seconds — the segment's "
+    "real position in the video, in seconds from the start — so a UI can highlight the correct "
+    "segment in sync with playback.\n"
+    "2. summary: a clear markdown summary of what the video covers.\n"
+    "3. key_points: the most important takeaways, as a short list.\n"
+    "4. quiz: 5 to 8 questions that test understanding of the video's actual content, a mix of "
+    "'single' (exactly one correct option) and 'multi' (one or more correct options) types. "
+    "correct_indices are 0-based indices into that question's options. Base every question "
+    "strictly on what the video actually covers — never invent content it doesn't contain."
 )
 
 
-async def analyze_video(video_bytes: bytes, mime_type: str) -> str:
-    """One-shot video → text extraction, not part of the chat tool-calling
-    loop — called once at upload time (video/service.py), and the resulting
-    text flows into knowledge.ingest_document like any uploaded document, so
-    video content becomes searchable via the existing search_knowledge tool
-    with zero new agent-tool code."""
+async def analyze_video(video_bytes: bytes, mime_type: str) -> VideoAnalysis:
+    """One-shot video → structured analysis, not part of the chat tool-calling
+    loop — called once at upload time (video/service.py) and persisted, never
+    regenerated (same generate-once-and-store pattern as job_drives). A single
+    call returns transcript+summary+quiz together via response_schema, which
+    is both cheaper and more reliable than three separate calls or re-parsing
+    free text — response.parsed comes back as a real VideoAnalysis instance,
+    no manual JSON parsing needed (verified: GenerateContentConfig accepts a
+    Pydantic model directly as response_schema in the installed SDK)."""
     _check_configured()
 
     contents = [
@@ -89,10 +123,15 @@ async def analyze_video(video_bytes: bytes, mime_type: str) -> str:
             ],
         )
     ]
+    config = types.GenerateContentConfig(
+        response_mime_type="application/json", response_schema=VideoAnalysis
+    )
 
     start = time.perf_counter()
     try:
-        response = await _get_client().aio.models.generate_content(model=MODEL, contents=contents)
+        response = await _get_client().aio.models.generate_content(
+            model=MODEL, contents=contents, config=config
+        )
     except errors.APIError as e:
         logger.error(
             "analyze_video_failed",
@@ -108,7 +147,7 @@ async def analyze_video(video_bytes: bytes, mime_type: str) -> str:
         "analyze_video_completed",
         extra={"model": MODEL, "duration_ms": round((time.perf_counter() - start) * 1000, 2)},
     )
-    return response.text or ""
+    return response.parsed
 
 
 @dataclass

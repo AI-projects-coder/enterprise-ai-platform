@@ -1,4 +1,4 @@
-const API_URL = process.env.API_INTERNAL_URL ?? "http://localhost:8000";
+export const API_URL = process.env.API_INTERNAL_URL ?? "http://localhost:8000";
 
 export class ApiError extends Error {
   constructor(public status: number, message: string) {
@@ -26,8 +26,16 @@ async function getIdentityToken(): Promise<string | null> {
   return res.text();
 }
 
-export async function apiFetch(path: string, init?: RequestInit) {
+// Shared with the video stream proxy (api/videos/[id]/stream/route.ts),
+// which can't go through apiFetch below since it needs the raw byte
+// response, not apiFetch's JSON parsing.
+export async function getServerlessAuthHeaders(): Promise<Record<string, string>> {
   const identityToken = await getIdentityToken();
+  return identityToken ? { "X-Serverless-Authorization": `Bearer ${identityToken}` } : {};
+}
+
+export async function apiFetch(path: string, init?: RequestInit) {
+  const serverlessAuthHeaders = await getServerlessAuthHeaders();
   // FormData (video upload) needs its own auto-generated multipart
   // boundary in Content-Type — setting "application/json" here would
   // break it, so this is the one case where we let fetch set it itself.
@@ -37,7 +45,7 @@ export async function apiFetch(path: string, init?: RequestInit) {
     ...init,
     headers: {
       ...(isFormData ? {} : { "Content-Type": "application/json" }),
-      ...(identityToken ? { "X-Serverless-Authorization": `Bearer ${identityToken}` } : {}),
+      ...serverlessAuthHeaders,
       ...init?.headers,
     },
   });
