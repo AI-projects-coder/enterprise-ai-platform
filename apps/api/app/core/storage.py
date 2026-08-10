@@ -7,6 +7,7 @@ GCS_BUCKET = os.environ.get("GCS_BUCKET")
 LOCAL_STORAGE_DIR = "/app/local_storage"
 
 _gcs_client = None
+_signing_credentials = None
 
 
 def _get_gcs_client():
@@ -16,6 +17,29 @@ def _get_gcs_client():
 
         _gcs_client = gcs_storage.Client()
     return _gcs_client
+
+
+def _get_signing_credentials():
+    """Cloud Run's ADC identity only ever carries a short-lived access
+    token, never an actual private key file — so blob.generate_signed_url()'s
+    DEFAULT signing path (local, private-key-based) always fails there with
+    "you need a private key to sign credentials" (hit live in sandbox: the
+    serviceAccountTokenCreator role alone doesn't change this — it only
+    unlocks a DIFFERENT signing path, and the code has to explicitly ask
+    for it). Passing service_account_email + access_token to
+    generate_signed_url switches it to remote signing via the IAM
+    Credentials API's signBlob instead, which is exactly what that role
+    grants permission to do. Not reached locally — both callers below are
+    already gated behind `if not GCS_BUCKET: return None`."""
+    global _signing_credentials
+    import google.auth
+    import google.auth.transport.requests
+
+    if _signing_credentials is None:
+        _signing_credentials, _ = google.auth.default()
+    if not _signing_credentials.valid:
+        _signing_credentials.refresh(google.auth.transport.requests.Request())
+    return _signing_credentials
 
 
 def _save_sync(key: uuid.UUID, content: bytes, content_type: str, folder: str) -> str:
@@ -52,7 +76,10 @@ async def save(key: uuid.UUID, content: bytes, content_type: str, folder: str) -
     on being free (FastAPI + asyncpg are both async throughout).
     `folder` namespaces different content types (videos/, datasets/, ...)
     within the one shared bucket/local dir — introduced in phase 11 when
-    datasets became the second thing besides video needing blob storage."""
+    datasets became the second thing besides video needing blob storage.
+    Note: this plain read/write path never needed signing at all — it's
+    only presigned_upload_url/presigned_read_url below (and therefore
+    _get_signing_credentials) that ran into the private-key issue."""
     return await asyncio.to_thread(_save_sync, key, content, content_type, folder)
 
 
@@ -63,19 +90,32 @@ async def load(storage_ref: str) -> bytes:
 def _presigned_upload_url_sync(key: uuid.UUID, folder: str, content_type: str) -> str | None:
     if not GCS_BUCKET:
         return None
+    credentials = _get_signing_credentials()
     blob = _get_gcs_client().bucket(GCS_BUCKET).blob(f"{folder}/{key}")
     return blob.generate_signed_url(
-        version="v4", expiration=timedelta(minutes=15), method="PUT", content_type=content_type
+        version="v4",
+        expiration=timedelta(minutes=15),
+        method="PUT",
+        content_type=content_type,
+        service_account_email=credentials.service_account_email,
+        access_token=credentials.token,
     )
 
 
 def _presigned_read_url_sync(storage_ref: str) -> str | None:
     if not storage_ref.startswith("gs://"):
         return None
+    credentials = _get_signing_credentials()
     _, _, rest = storage_ref.partition("gs://")
     bucket_name, _, blob_name = rest.partition("/")
     blob = _get_gcs_client().bucket(bucket_name).blob(blob_name)
-    return blob.generate_signed_url(version="v4", expiration=timedelta(minutes=60), method="GET")
+    return blob.generate_signed_url(
+        version="v4",
+        expiration=timedelta(minutes=60),
+        method="GET",
+        service_account_email=credentials.service_account_email,
+        access_token=credentials.token,
+    )
 
 
 async def presigned_upload_url(key: uuid.UUID, content_type: str, folder: str) -> str | None:
@@ -87,12 +127,11 @@ async def presigned_upload_url(key: uuid.UUID, content_type: str, folder: str) -
     multipart upload through the API instead — same environment split `save`
     already makes.
 
-    NOTE: signing requires the calling service account to be able to sign
-    blobs itself (IAM Credentials API / roles/iam.serviceAccountTokenCreator
-    on its own identity) when using ADC rather than a private key file — this
-    is a real, separate permission from the storage access already granted,
-    and needs to be verified live against the sandbox Cloud Run service
-    account before this path is trusted in a deployed environment."""
+    Requires the calling service account to hold roles/iam.serviceAccount
+    TokenCreator on its own identity (separate from ordinary storage
+    read/write access) — see _get_signing_credentials for why, and why that
+    role alone wasn't sufficient without also passing service_account_email/
+    access_token here."""
     return await asyncio.to_thread(_presigned_upload_url_sync, key, folder, content_type)
 
 
