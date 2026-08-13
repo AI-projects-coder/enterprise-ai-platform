@@ -11,6 +11,7 @@ from app.modules.auth.router import get_current_user
 from app.modules.support.schemas import (
     AttachmentUploadUrlRequest,
     AttachmentUploadUrlResponse,
+    TicketAttachmentDetail,
     TicketAttachmentRead,
     TicketCreate,
     TicketDetail,
@@ -119,7 +120,7 @@ async def get_ticket_detail_endpoint(
 ):
     ticket, attachments = await get_ticket_detail(db, current_user.id, ticket_id)
     attachment_reads = [
-        TicketAttachmentRead(
+        TicketAttachmentDetail(
             id=a.id,
             storage_ref=a.storage_ref,
             content_type=a.content_type,
