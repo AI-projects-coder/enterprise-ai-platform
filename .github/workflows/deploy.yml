@@ -64,8 +64,8 @@ jobs:
             --platform=managed \
             --no-allow-unauthenticated \
             --set-cloudsql-instances=${{ vars.SQL_CONNECTION_NAME }} \
-            --set-secrets=DATABASE_URL=DATABASE_URL:latest,JWT_SECRET=JWT_SECRET:latest,GEMINI_API_KEY=GEMINI_API_KEY:latest \
-            --set-env-vars=JWT_ALGORITHM=HS256,ACCESS_TOKEN_EXPIRE_MINUTES=30,GCS_BUCKET=${{ vars.GCS_BUCKET }} \
+            --set-secrets=DATABASE_URL=DATABASE_URL:latest,JWT_SECRET=JWT_SECRET:latest,GEMINI_API_KEY=GEMINI_API_KEY:latest,JIRA_API_TOKEN=JIRA_API_TOKEN:latest,RESEND_API_KEY=RESEND_API_KEY:latest \
+            --set-env-vars=JWT_ALGORITHM=HS256,ACCESS_TOKEN_EXPIRE_MINUTES=30,GCS_BUCKET=${{ vars.GCS_BUCKET }},JIRA_BASE_URL=${{ vars.JIRA_BASE_URL }},JIRA_EMAIL=${{ vars.JIRA_EMAIL }},JIRA_PROJECT_KEY=${{ vars.JIRA_PROJECT_KEY }} \
             --service-account=api-runtime@${{ vars.GCP_PROJECT_ID }}.iam.gserviceaccount.com \
             --min-instances=0 --max-instances=3
 
@@ -101,3 +101,18 @@ jobs:
             --service-account=web-runtime@${{ vars.GCP_PROJECT_ID }}.iam.gserviceaccount.com \
             --set-env-vars=API_INTERNAL_URL=${{ steps.api_url.outputs.url }} \
             --min-instances=0 --max-instances=3
+
+      - name: Deploy sync-ticket-statuses Cloud Run Job (same image as the service)
+        run: |
+          IMAGE=${{ env.REGION }}-docker.pkg.dev/${{ vars.GCP_PROJECT_ID }}/containers/api:${{ github.sha }}
+          gcloud run jobs deploy sync-ticket-statuses \
+            --image="$IMAGE" \
+            --region=${{ env.REGION }} \
+            --project=${{ vars.GCP_PROJECT_ID }} \
+            --set-cloudsql-instances=${{ vars.SQL_CONNECTION_NAME }} \
+            --set-secrets=DATABASE_URL=DATABASE_URL:latest,JWT_SECRET=JWT_SECRET:latest,GEMINI_API_KEY=GEMINI_API_KEY:latest,JIRA_API_TOKEN=JIRA_API_TOKEN:latest,RESEND_API_KEY=RESEND_API_KEY:latest \
+            --set-env-vars=JWT_ALGORITHM=HS256,ACCESS_TOKEN_EXPIRE_MINUTES=30,JIRA_BASE_URL=${{ vars.JIRA_BASE_URL }},JIRA_EMAIL=${{ vars.JIRA_EMAIL }},JIRA_PROJECT_KEY=${{ vars.JIRA_PROJECT_KEY }} \
+            --command=.venv/bin/python \
+            --args=-m,app.jobs.sync_ticket_statuses \
+            --service-account=api-runtime@${{ vars.GCP_PROJECT_ID }}.iam.gserviceaccount.com \
+            --max-retries=0      

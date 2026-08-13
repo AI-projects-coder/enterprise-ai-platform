@@ -392,3 +392,64 @@ async def generate(history: list[Message], tools: list[ToolDeclaration] | None =
 
     logger.info("generate_completed", extra={**log_fields, "outcome": "text"})
     return GenerateResult(kind="text", text=response.text or "", **token_kwargs)
+
+
+
+TICKET_CLASSIFICATION_PROMPT = (
+    "A user reported this problem with a software product:\n\n"
+    "{description}\n\n"
+    "If any images or video are attached, they show the issue happening — use them as "
+    "evidence too, not just the text.\n\n"
+    "Classify how urgently this needs attention and write a short issue title.\n"
+    "priority: one of 'low', 'medium', 'high', 'highest'. Use 'highest' only for something "
+    "that blocks core functionality or affects many users (crashes, data loss, nothing loads "
+    "at all). Use 'low' for cosmetic issues or minor inconveniences that don't block real work.\n"
+    "summary: a short, specific issue title (under 80 characters) fit for a bug tracker — not "
+    "a restatement of the whole description."
+)
+
+class TicketClassification(BaseModel):
+    priority: Literal["low", "medium", "high", "highest"]
+    summary: str
+    
+    
+async def classify_ticket_priority(
+    description: str, attachments: list[tuple[bytes, str]]
+) -> TicketClassification:
+    """One Gemini call, same generate-once philosophy as analyze_video —
+    looks at the description AND any attached images/video together (Gemini
+    reads images natively too, not just video), so priority reflects real
+    evidence when it's available, not just how alarming the text sounds.
+    `attachments` is a list of (bytes, content_type) — empty list is fine,
+    it just means the call runs on text alone."""
+    _check_configured()
+
+    parts = [types.Part.from_bytes(data=content, mime_type=mime_type) for content, mime_type in attachments]
+    parts.append(types.Part.from_text(text=TICKET_CLASSIFICATION_PROMPT.format(description=description)))
+
+    contents = [types.Content(role="user", parts=parts)]
+    config = types.GenerateContentConfig(
+        response_mime_type="application/json", response_schema=TicketClassification
+    )
+
+    start = time.perf_counter()
+    try:
+        response = await _get_client().aio.models.generate_content(
+            model=MODEL, contents=contents, config=config
+        )
+    except errors.APIError as e:
+        logger.error(
+            "classify_ticket_failed",
+            extra={
+                "model": MODEL,
+                "duration_ms": round((time.perf_counter() - start) * 1000, 2),
+                "gemini_error": e.message,
+            },
+        )
+        _handle_api_error(e)
+
+    logger.info(
+        "classify_ticket_completed",
+        extra={"model": MODEL, "duration_ms": round((time.perf_counter() - start) * 1000, 2)},
+    )
+    return response.parsed

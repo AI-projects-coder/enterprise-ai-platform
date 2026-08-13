@@ -12,6 +12,7 @@ from app.modules.job_drives.router import router as job_drives_router
 from app.modules.knowledge.router import router as knowledge_router
 from app.modules.memory.router import router as memory_router
 from app.modules.video.router import router as video_router
+from app.modules.support.router import router as support_router
 
 configure_logging()
 
@@ -29,6 +30,7 @@ app.include_router(datasets_router)
 app.include_router(cloud_configs_router)
 app.include_router(incidents_router)
 app.include_router(job_drives_router)
+app.include_router(support_router)
 
 
 @app.get("/health")

@@ -53,7 +53,14 @@ async def create_upload_target(
     produce two rows: this throwaway one plus the real one from the
     local-upload fallback the frontend calls next. When GCS isn't
     configured, returns (None, None) — the frontend's local-upload fallback
-    is then the ONLY path that creates a row."""
+    is then the ONLY path that creates a row.
+
+    Commit is deliberately the LAST step, after signing succeeds — not
+    before. flush() assigns video.id (needed as the signed URL's blob key)
+    without committing, so if presigned_upload_url() throws (hit live in
+    sandbox: a private-key signing error), the `async with SessionLocal()`
+    block in get_db rolls the whole thing back automatically and no orphaned
+    row is left behind stuck in "processing" forever."""
     if not storage.GCS_BUCKET:
         return None, None
 
@@ -61,10 +68,12 @@ async def create_upload_target(
         user_id=user_id, title=title, description=description, content_type=content_type
     )
     db.add(video)
-    await db.commit()
-    await db.refresh(video)
+    await db.flush()
 
     upload_url = await storage.presigned_upload_url(video.id, content_type, folder="videos")
+
+    await db.commit()
+    await db.refresh(video)
     return video, upload_url
 
 
