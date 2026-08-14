@@ -8,7 +8,8 @@ from app.modules.support.models import Ticket, TicketAttachment
 from app.modules.ai_gateway.service import embed
 from sqlalchemy import select   # add to the existing sqlalchemy import
 from app.modules.ai_gateway.service import TicketClassification, classify_ticket_priority
-from app.modules.support.jira import create_jira_issue
+from app.modules.support.jira import attach_files_to_issue, create_jira_issue
+import mimetypes
 import logging
 
 from app.core.database import SessionLocal
@@ -135,7 +136,10 @@ async def classify_and_update_ticket(
 
 
 async def create_and_link_jira_issue(
-    db: AsyncSession, ticket: Ticket, classification: TicketClassification
+    db: AsyncSession,
+    ticket: Ticket,
+    classification: TicketClassification,
+    attachments: list[TicketAttachment],
 ) -> None:
     issue_key = await create_jira_issue(
         classification.summary, ticket.description, classification.priority
@@ -143,6 +147,19 @@ async def create_and_link_jira_issue(
     if issue_key:
         ticket.jira_issue_key = issue_key
         await db.commit()
+
+        # Issue must exist first — attaching files is a separate call
+        # against an issue key that only exists after creation succeeds.
+        files = [
+            (_attachment_filename(a), await storage.load(a.storage_ref), a.content_type)
+            for a in attachments
+        ]
+        await attach_files_to_issue(issue_key, files)
+
+
+def _attachment_filename(attachment: TicketAttachment) -> str:
+    extension = mimetypes.guess_extension(attachment.content_type) or ""
+    return f"attachment-{attachment.id}{extension}"
         
 async def list_tickets(db: AsyncSession, user_id: uuid.UUID) -> list[Ticket]:
     result = await db.scalars(
@@ -175,7 +192,7 @@ async def process_ticket_submission(ticket_id: uuid.UUID) -> None:
 
         try:
             classification = await classify_and_update_ticket(db, ticket, attachments)
-            await create_and_link_jira_issue(db, ticket, classification)
+            await create_and_link_jira_issue(db, ticket, classification, attachments)
             ticket.status = "in_progress"
             await db.commit()
         except Exception:

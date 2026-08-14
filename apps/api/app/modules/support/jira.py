@@ -76,6 +76,35 @@ async def create_jira_issue(summary: str, description: str, priority: str) -> st
     return response.json()["key"]
 
 
+async def attach_files_to_issue(issue_key: str, files: list[tuple[str, bytes, str]]) -> None:
+    """files: list of (filename, content, content_type). Attaching a file is
+    a SEPARATE Jira API call from creating the issue — issue creation only
+    ever accepts plain field values (text/JSON), never binary content, so
+    this always needs its own request against the issue that already
+    exists. Two things this endpoint specifically requires that the issue-
+    creation call doesn't: multipart/form-data instead of JSON, and the
+    `X-Atlassian-Token: no-check` header — Jira's attachment endpoint has
+    its own CSRF check that assumes a browser session by default and
+    rejects plain API calls without this header, even with valid auth."""
+    if not _is_configured() or not files:
+        return
+
+    multipart_files = [("file", (filename, content, content_type)) for filename, content, content_type in files]
+
+    async with httpx.AsyncClient() as client:
+        try:
+            response = await client.post(
+                f"{JIRA_BASE_URL}/rest/api/3/issue/{issue_key}/attachments",
+                files=multipart_files,
+                headers={"X-Atlassian-Token": "no-check"},
+                auth=(JIRA_EMAIL, JIRA_API_TOKEN),
+                timeout=30.0,
+            )
+            response.raise_for_status()
+        except httpx.HTTPError:
+            logger.exception("jira_attach_files_failed", extra={"issue_key": issue_key})
+
+
 async def get_jira_issue_status(issue_key: str) -> str | None:
     """Returns the issue's statusCategory KEY — always one of exactly three
     fixed values across any Jira project/workflow: 'new', 'indeterminate',
