@@ -29,13 +29,23 @@ def _is_configured() -> bool:
     return bool(JIRA_BASE_URL and JIRA_EMAIL and JIRA_API_TOKEN and JIRA_PROJECT_KEY)
 
 
-async def create_jira_issue(summary: str, description: str, priority: str) -> str | None:
+async def create_jira_issue(
+    summary: str, description: str, priority: str, reporter_email: str
+) -> str | None:
     """Returns the created issue's key (e.g. "SUPPORT-42"), or None if Jira
     isn't configured. This runs inside a background task, not a live
     request a user is waiting on — so a missing or broken Jira integration
     should degrade gracefully, not crash the whole ticket-creation pipeline.
     A None jira_issue_key just means the ticket exists in our system
-    without a Jira counterpart yet."""
+    without a Jira counterpart yet.
+
+    reporter_email is NOT set as Jira's system Reporter field — that field
+    can only reference a real, licensed Atlassian user, and our app's users
+    aren't Jira users at all. Every issue this creates is authored by the
+    one shared JIRA_EMAIL/JIRA_API_TOKEN identity, structurally, no matter
+    who raised it in the app. The real reporter is written into the
+    description body instead, which is the only place we can actually
+    surface it."""
     if not _is_configured():
         logger.warning("jira_not_configured", extra={"summary": summary})
         return None
@@ -52,7 +62,14 @@ async def create_jira_issue(summary: str, description: str, priority: str) -> st
                 "type": "doc",
                 "version": 1,
                 "content": [
-                    {"type": "paragraph", "content": [{"type": "text", "text": description}]}
+                    {
+                        "type": "paragraph",
+                        "content": [
+                            {"type": "text", "text": "Reported by: ", "marks": [{"type": "strong"}]},
+                            {"type": "text", "text": reporter_email},
+                        ],
+                    },
+                    {"type": "paragraph", "content": [{"type": "text", "text": description}]},
                 ],
             },
             "issuetype": {"name": "Support"},

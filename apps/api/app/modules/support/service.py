@@ -140,9 +140,10 @@ async def create_and_link_jira_issue(
     ticket: Ticket,
     classification: TicketClassification,
     attachments: list[TicketAttachment],
+    reporter_email: str,
 ) -> None:
     issue_key = await create_jira_issue(
-        classification.summary, ticket.description, classification.priority
+        classification.summary, ticket.description, classification.priority, reporter_email
     )
     if issue_key:
         ticket.jira_issue_key = issue_key
@@ -192,7 +193,7 @@ async def process_ticket_submission(ticket_id: uuid.UUID) -> None:
 
         try:
             classification = await classify_and_update_ticket(db, ticket, attachments)
-            await create_and_link_jira_issue(db, ticket, classification, attachments)
+            await create_and_link_jira_issue(db, ticket, classification, attachments, user.email)
             ticket.status = "in_progress"
             await db.commit()
         except Exception:
